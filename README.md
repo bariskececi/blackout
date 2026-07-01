@@ -1,5 +1,7 @@
 # ⚡ BLACKOUT
 
+![Blackout Demo](docs/blackout_demo.gif)
+
 ### Watch a cyberattack take down a water plant — in your browser.
 
 **[▶ Launch the live simulator](https://bariskececi.github.io/blackout/)** · no install, no signup, opens in one click.
@@ -40,6 +42,8 @@ The lesson lands on its own: with the safety system online, the plant trips to a
 safe shutdown and survives. Switch it off first, and there are no brakes.
 
 ## The techniques (all real ATT&CK for ICS)
+
+![Blackout Simulator](docs/blackout_hero.png)
 
 | ID | Technique | In the sim |
 |----|-----------|-----------|
