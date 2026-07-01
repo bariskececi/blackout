@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<title>BLACKOUT — Critical Infrastructure Attack Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#05080d; --panel:rgba(11,17,27,.82); --line:rgba(55,225,214,.18);
+  --ink:#d3e0ee; --dim:#6b7f96; --faint:#3b4a5e;
+  --cyan:#37e1d6; --amber:#ffb454; --red:#ff5740; --ok:#39d98a; --violet:#b48cff; --water:#2f8fd6;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace; --disp:'Chakra Petch',system-ui,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--mono);overflow:hidden;user-select:none}
+#stage{position:fixed;inset:0}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:60;opacity:.35;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0 2px,rgba(0,0,0,.16) 2px 3px);mix-blend-mode:multiply}
+.shake{animation:shake .4s}
+@keyframes shake{0%,100%{transform:translate(0,0)}20%{transform:translate(-6px,3px)}40%{transform:translate(5px,-4px)}60%{transform:translate(-4px,-2px)}80%{transform:translate(3px,4px)}}
+
+/* HUD overlays */
+.hud{position:fixed;z-index:20;pointer-events:none}
+#top{top:0;left:0;right:0;display:flex;align-items:center;gap:14px;padding:10px 16px;
+  background:linear-gradient(180deg,rgba(6,10,16,.92),rgba(6,10,16,0));z-index:22}
+.brand{font-family:var(--disp);font-weight:700;font-size:19px;letter-spacing:5px;color:#fff;text-shadow:0 0 18px rgba(255,87,64,.45);display:flex;align-items:center;gap:9px}
+.brand .b{width:10px;height:10px;background:var(--red);transform:rotate(45deg);box-shadow:0 0 12px var(--red);animation:bp 1.3s infinite}
+@keyframes bp{0%,100%{opacity:1}50%{opacity:.35}}
+.scen{font-size:11px;letter-spacing:1px;color:var(--dim);text-transform:uppercase;border-left:1px solid var(--line);padding-left:14px}
+.scen b{color:var(--ink)}
+.status{margin-left:auto;display:flex;align-items:center;gap:16px;pointer-events:auto}
+.badge{font-family:var(--disp);font-size:11px;letter-spacing:2px;padding:5px 12px;border-radius:3px;text-transform:uppercase;border:1px solid var(--ok);color:var(--ok);background:rgba(57,217,138,.1)}
+.badge.warn{border-color:var(--amber);color:var(--amber);background:rgba(255,180,84,.1)}
+.badge.crit{border-color:var(--red);color:var(--red);background:rgba(255,87,64,.12);animation:bp 1s infinite}
+.clock{font-family:var(--disp);font-size:15px;letter-spacing:2px;color:var(--ink);min-width:74px;text-align:right}
+.iconbtn{pointer-events:auto;cursor:pointer;border:1px solid var(--line);background:rgba(13,20,32,.7);color:var(--dim);
+  border-radius:4px;padding:5px 9px;font-family:var(--mono);font-size:11px}
+.iconbtn:hover{color:var(--ink);border-color:var(--cyan)}
+
+/* rails */
+.rail{position:fixed;top:56px;bottom:38px;width:270px;z-index:21;display:flex;flex-direction:column;gap:9px;pointer-events:none}
+#left{left:12px}#right{right:12px;width:300px}
+.card{pointer-events:auto;background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:10px 11px;position:relative;backdrop-filter:blur(3px)}
+.card::before{content:"";position:absolute;top:-1px;left:-1px;width:11px;height:11px;border-top:2px solid var(--cyan);border-left:2px solid var(--cyan);opacity:.6}
+.card::after{content:"";position:absolute;bottom:-1px;right:-1px;width:11px;height:11px;border-bottom:2px solid var(--cyan);border-right:2px solid var(--cyan);opacity:.6}
+.ct{font-family:var(--disp);font-size:9.5px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:9px;display:flex;align-items:center;gap:7px}
+.ct::before{content:"▐";color:var(--red)}
+.ct.blue::before{content:"▐";color:var(--cyan)}
+
+/* attack buttons */
+.atk{display:flex;flex-direction:column;gap:7px}
+.tbtn{cursor:pointer;text-align:left;border:1px solid var(--line2,#22303f);background:linear-gradient(180deg,rgba(20,12,14,.6),rgba(12,8,10,.5));
+  border-radius:4px;padding:7px 9px;color:var(--ink);transition:transform .07s,border-color .12s,box-shadow .12s;position:relative;overflow:hidden}
+.tbtn:hover{transform:translateX(2px);border-color:var(--red);box-shadow:0 0 14px rgba(255,87,64,.25)}
+.tbtn:active{transform:scale(.98)}
+.tbtn .tid{font-family:var(--disp);font-size:8px;letter-spacing:.5px;color:var(--red);opacity:.8}
+.tbtn .tn{font-size:11px;font-weight:500;margin-top:1px}
+.tbtn .td{font-size:8.5px;color:var(--dim);margin-top:2px;line-height:1.35}
+.tbtn.used{opacity:.5;border-color:#2a3a4c}
+.tbtn.disabled{opacity:.35;pointer-events:none;filter:grayscale(.6)}
+
+/* HMI */
+.hmi{flex:0 0 auto}
+.hmi .screen{border:1px solid var(--line);border-radius:4px;background:radial-gradient(ellipse at 50% 0,rgba(20,40,55,.5),rgba(6,12,18,.7));padding:9px}
+.gaugerow{display:flex;justify-content:space-between;gap:8px}
+.gauge{flex:1;text-align:center}
+.gauge .lab{font-size:7.5px;letter-spacing:.5px;color:var(--dim);text-transform:uppercase}
+.gauge .val{font-family:var(--disp);font-size:17px;font-weight:700;color:var(--ok);line-height:1.1;margin-top:2px}
+.gauge .val.warn{color:var(--amber)} .gauge .val.crit{color:var(--red)}
+.gauge .unit{font-size:8px;color:var(--faint)}
+.hmi .bar{height:7px;background:#0b1521;border-radius:4px;margin-top:8px;overflow:hidden;position:relative}
+.hmi .bar>span{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:linear-gradient(90deg,#1f6a66,var(--cyan));transition:width .2s,background .2s}
+.hmi .barlab{display:flex;justify-content:space-between;font-size:7.5px;color:var(--dim);margin-top:3px}
+.hmi.spoofed .screen{box-shadow:inset 0 0 0 1px rgba(57,217,138,.3)}
+.hmi.frozen .screen{filter:grayscale(.4) brightness(.8)}
+.hmi .flag{font-size:8px;letter-spacing:1px;text-transform:uppercase;margin-top:7px;text-align:center;color:var(--faint)}
+
+/* defender */
+.dbtns{display:flex;flex-direction:column;gap:6px}
+.dbtn{cursor:pointer;border:1px solid #22303f;background:rgba(12,20,30,.5);border-radius:4px;padding:6px 9px;color:var(--ink);font-size:10.5px;transition:.1s;display:flex;align-items:center;gap:7px}
+.dbtn:hover{border-color:var(--cyan);color:#fff;box-shadow:0 0 12px rgba(55,225,214,.2)}
+.dbtn .k{margin-left:auto;font-size:8px;color:var(--dim)}
+.dbtn.disabled{opacity:.35;pointer-events:none}
+.toggle{pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:20px;padding:3px 4px 3px 12px;letter-spacing:1px;text-transform:uppercase}
+.toggle .sw{width:34px;height:18px;border-radius:10px;background:#1a2634;position:relative;transition:.15s}
+.toggle .sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--dim);transition:.15s}
+.toggle.on{color:var(--cyan);border-color:var(--cyan)}
+.toggle.on .sw{background:rgba(55,225,214,.3)} .toggle.on .sw::after{left:18px;background:var(--cyan)}
+
+/* log */
+.log{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+#logbody{flex:1;overflow-y:auto;font-size:9.5px;line-height:1.5;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.le{padding:2px 0;border-bottom:1px solid rgba(29,42,58,.4);color:var(--dim)}
+.le .tt{color:var(--faint);margin-right:6px}
+.le.atk{color:#ff9585} .le.ids{color:var(--amber)} .le.def{color:var(--cyan)} .le.sys{color:var(--ok)} .le.crit{color:var(--red);font-weight:600}
+
+/* bottom ticker */
+#ticker{position:fixed;left:0;right:0;bottom:0;z-index:22;height:28px;overflow:hidden;white-space:nowrap;
+  background:rgba(6,10,16,.92);border-top:1px solid var(--line);display:flex;align-items:center;font-size:10px;letter-spacing:.5px}
+#ticker .tk{display:inline-block;padding-left:100%;animation:mq 26s linear infinite;color:var(--dim)}
+#ticker .tk b{color:var(--red)} #ticker .tk .c{color:var(--cyan)}
+@keyframes mq{0%{transform:translateX(0)}100%{transform:translateX(-100%)}}
+
+/* intro + outro overlays */
+.overlay{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;flex-direction:column;
+  background:radial-gradient(ellipse at 50% 40%,rgba(20,40,55,.35),rgba(4,7,12,.96));text-align:center;padding:24px}
+.overlay.hidden{display:none}
+.big{font-family:var(--disp);font-weight:700;letter-spacing:8px;color:#fff;font-size:min(11vw,72px);text-shadow:0 0 40px rgba(255,87,64,.5)}
+.sub{color:var(--cyan);letter-spacing:4px;text-transform:uppercase;font-size:13px;margin-top:6px}
+.blurb{color:var(--dim);max-width:560px;line-height:1.6;font-size:13px;margin:18px 0 26px}
+.cta{cursor:pointer;font-family:var(--disp);letter-spacing:3px;text-transform:uppercase;font-size:15px;color:#05080d;background:var(--cyan);
+  border:none;border-radius:5px;padding:14px 30px;box-shadow:0 0 30px rgba(55,225,214,.5);transition:.12s}
+.cta:hover{transform:scale(1.04);box-shadow:0 0 44px rgba(55,225,214,.8)}
+.termline{font-size:12px;color:var(--ok);min-height:20px;letter-spacing:1px}
+#outcard{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:26px 34px;max-width:520px}
+#outTitle{font-family:var(--disp);font-size:34px;letter-spacing:3px;font-weight:700}
+.orow{display:flex;justify-content:space-between;font-size:13px;color:var(--dim);margin-top:10px}
+.orow b{color:var(--ink);font-family:var(--disp)}
+.hint{font-size:10px;color:var(--faint);margin-top:14px;letter-spacing:1px}
+@media (max-width:900px){ .rail{display:none} }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="cv"></canvas></div>
+
+<!-- TOP HUD -->
+<div id="top" class="hud">
+  <div class="brand"><span class="b"></span>BLACKOUT</div>
+  <div class="scen">target · <b>RIVERSIDE WATER TREATMENT</b> · sector: critical infrastructure</div>
+  <div class="status">
+    <div class="badge" id="statusBadge">NOMINAL</div>
+    <div class="clock" id="clock">T+00:00</div>
+    <div class="iconbtn" id="muteBtn">🔊 SFX</div>
+  </div>
+</div>
+
+<!-- LEFT RAIL: attacker console -->
+<div id="left" class="rail">
+  <div class="card atk" style="flex:0 0 auto">
+    <div class="ct">Attacker console · ATT&CK for ICS</div>
+    <div class="atk" id="atkBtns"></div>
+  </div>
+  <div class="card" style="flex:1 1 auto;min-height:0;overflow:hidden">
+    <div class="ct">Objective</div>
+    <div style="font-size:11px;color:var(--dim);line-height:1.6">
+      Chain techniques to drive the plant to <b style="color:var(--red)">physical failure</b> before defenders contain you.
+      Disable safety first (like TRITON) so nothing stops the cascade.
+    </div>
+    <div style="font-size:10px;color:var(--faint);margin-top:12px;line-height:1.6">
+      This is a <b style="color:var(--cyan)">simulation</b> — no real device is touched. It shows how ICS attacks translate into physical consequences.
+    </div>
+  </div>
+</div>
+
+<!-- RIGHT RAIL: HMI + defender + log -->
+<div id="right" class="rail">
+  <div class="card hmi" id="hmi">
+    <div class="ct blue">Operator HMI <span id="hmiState" style="margin-left:auto;color:var(--ok);font-size:8px"></span></div>
+    <div class="screen">
+      <div class="gaugerow">
+        <div class="gauge"><div class="lab">Tank level</div><div class="val" id="gLevel">50</div><div class="unit">%</div></div>
+        <div class="gauge"><div class="lab">Chlorine</div><div class="val" id="gCl">1.0</div><div class="unit">ppm</div></div>
+        <div class="gauge"><div class="lab">Pressure</div><div class="val" id="gPress">3.2</div><div class="unit">bar</div></div>
+      </div>
+      <div class="bar"><span id="barLevel" style="width:50%"></span></div>
+      <div class="barlab"><span>CLEARWELL</span><span id="barLevelTxt">50%</span></div>
+      <div class="flag" id="hmiFlag">● LIVE — process nominal</div>
+    </div>
+  </div>
+
+  <div class="card" style="flex:0 0 auto">
+    <div class="ct blue">Defense
+      <span style="margin-left:auto"><span class="toggle" id="blueToggle"><span>Blue team</span><span class="sw"></span></span></span>
+    </div>
+    <div class="dbtns" id="defBtns">
+      <div class="dbtn disabled" data-act="safety">Re-enable safety system <span class="k">SIS</span></div>
+      <div class="dbtn disabled" data-act="setpoint">Restore setpoints <span class="k">HMI</span></div>
+      <div class="dbtn disabled" data-act="isolate">Isolate zone / block command <span class="k">FW</span></div>
+      <div class="dbtn disabled" data-act="hmi">Restore operator view <span class="k">HMI</span></div>
+    </div>
+    <div id="idsWrap" style="margin-top:9px;font-size:9px;color:var(--faint);letter-spacing:1px">IDS: <span id="idsState" style="color:var(--dim)">passive</span></div>
+  </div>
+
+  <div class="card log" style="flex:1 1 auto;min-height:0">
+    <div class="ct blue">Event log</div>
+    <div id="logbody"></div>
+  </div>
+</div>
+
+<div id="ticker"><span class="tk" id="tk"></span></div>
+
+<!-- INTRO -->
+<div class="overlay" id="intro">
+  <div class="big">BLACKOUT</div>
+  <div class="sub">Critical Infrastructure Attack Simulator</div>
+  <div class="blurb">A live water-treatment plant runs below. Launch real ICS attack techniques and watch them cascade into physical consequences — overflow, chemical release, pressure surge, city-wide outage. Then flip to blue team and try to stop it. No real systems are touched; this is how an ICS attack actually plays out.</div>
+  <div class="termline" id="term"></div>
+  <button class="cta" id="startBtn">▶ Initiate simulation</button>
+  <div class="hint" style="margin-top:22px">Educational simulation · ATT&amp;CK for ICS · GNSAC</div>
+</div>
+
+<!-- OUTRO -->
+<div class="overlay hidden" id="outro">
+  <div id="outcard">
+    <div id="outTitle">PROCESS COMPROMISED</div>
+    <div id="outSub" style="color:var(--dim);letter-spacing:2px;margin-top:4px;font-size:12px"></div>
+    <div class="orow"><span>Time survived</span><b id="outTime">—</b></div>
+    <div class="orow"><span>Techniques used</span><b id="outTech">—</b></div>
+    <div class="orow"><span>Consequence</span><b id="outCons" style="color:var(--red)">—</b></div>
+    <div class="orow"><span>Defense</span><b id="outDef">—</b></div>
+    <button class="cta" id="restartBtn" style="margin-top:22px;background:var(--red);color:#fff;box-shadow:0 0 30px rgba(255,87,64,.5)">⟲ Run again</button>
+    <div class="hint">Share your run · every technique here is real ATT&amp;CK for ICS</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+let W=0,H=0,DPR=Math.min(2,window.devicePixelRatio||1);
+function resize(){W=window.innerWidth;H=window.innerHeight;cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);}
+window.addEventListener('resize',resize);resize();
+
+// ---------- state ----------
+const S={
+  running:false, over:false, t:0, // seconds
+  level:0.5,        // clearwell 0..1
+  chlorine:1.0,     // ppm
+  pressure:3.2,     // bar
+  health:100,       // process integrity
+  pumpIn:0.5,       // 0..1 speed
+  pumpOut:0.5,
+  clSet:1.0,        // chlorine setpoint
+  valve:1.0,        // outflow valve open fraction
+  safety:true,      // SIS enabled
+  hmiFrozen:false, hmiSpoofed:false,
+  frozenSnap:null,
+  attacks:{},       // technique id -> active
+  usedCount:0,
+  blue:false,
+  cons:null,        // consequence label
+  defended:false,
+  cityPower:1,      // 0..1
+};
+let flowPhase=0, pumpPhase=0, klaxon=0, shakeT=0;
+const P={spray:[],gas:[],spark:[],ripple:[]};
+
+// ---------- audio (optional) ----------
+let AC=null,muted=false;
+function beep(freq,dur,type,vol){ if(muted)return; try{ if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();
+  const o=AC.createOscillator(),g=AC.createGain(); o.type=type||'square'; o.frequency.value=freq;
+  g.gain.value=vol||0.05; o.connect(g); g.connect(AC.destination); o.start();
+  g.gain.exponentialRampToValueAtTime(0.0001,AC.currentTime+(dur||0.15)); o.stop(AC.currentTime+(dur||0.15)); }catch(e){} }
+function alarm(){ beep(660,0.12,'square',0.06); setTimeout(()=>beep(440,0.14,'square',0.06),140); }
+
+// ---------- techniques ----------
+const TECH=[
+  {id:"T0855",name:"Unauthorized Command",desc:"Force intake pump to max & throttle the outflow valve.",
+   fn:()=>{S.attacks.flood=true;S.pumpIn=1;S.valve=0.15;}, ids:"Unauthorized Modbus write to pump/valve"},
+  {id:"T0836",name:"Modify Setpoint",desc:"Drive the chlorine dosing setpoint to a toxic level.",
+   fn:()=>{S.attacks.chem=true;S.clSet=14;}, ids:"Chlorine setpoint changed outside safe band"},
+  {id:"T0806",name:"Brute-Force I/O",desc:"Slam the discharge valve shut — surge the pressure.",
+   fn:()=>{S.attacks.surge=true;S.valve=0.0;}, ids:"Rapid I/O writes — pressure anomaly"},
+  {id:"T0880",name:"Loss of Safety (TRITON)",desc:"Disable the safety instrumented system. Nothing will trip.",
+   fn:()=>{S.safety=false;S.attacks.safety=true;alarm();}, ids:"Safety controller reprogrammed / offline"},
+  {id:"T0814",name:"Denial of View",desc:"Freeze the operator HMI — they go blind to the process.",
+   fn:()=>{S.hmiFrozen=true;S.frozenSnap=snapshot();}, ids:"HMI update service stopped"},
+  {id:"T0856",name:"Spoof Reporting",desc:"Feed the HMI fake 'all-normal' values while reality diverges.",
+   fn:()=>{S.hmiSpoofed=true;}, ids:"Reported values inconsistent with field"},
+];
+function snapshot(){return {level:S.level,chlorine:S.chlorine,pressure:S.pressure};}
+
+// ---------- log/ticker ----------
+const logbody=document.getElementById('logbody');
+function log(kind,msg){const d=document.createElement('div');d.className='le '+kind;
+  d.innerHTML='<span class="tt">'+fmt(S.t)+'</span>'+msg; logbody.prepend(d);
+  while(logbody.children.length>60)logbody.lastChild.remove();}
+function fmt(t){t=Math.max(0,t|0);return 'T+'+String((t/60)|0).padStart(2,'0')+':'+String(t%60).padStart(2,'0');}
+
+// ---------- attacks ----------
+function doAttack(tech,btn){
+  if(S.over||!S.running)return;
+  tech.fn(); S.usedCount++; if(btn){btn.classList.add('used');}
+  log('atk','▲ <b>'+tech.id+'</b> '+tech.name);
+  beep(180,0.08,'sawtooth',0.05);
+  if(S.blue){ log('ids','⚠ IDS: '+tech.ids); flashIDS(); }
+}
+function flashIDS(){const el=document.getElementById('idsState');el.style.color='var(--amber)';el.textContent='ALERT';setTimeout(()=>{el.textContent=S.blue?'active':'passive';el.style.color=S.blue?'var(--cyan)':'var(--dim)';},1400);}
+
+// build attack buttons
+const atkBtns=document.getElementById('atkBtns');
+TECH.forEach(t=>{const b=document.createElement('div');b.className='tbtn';
+  b.innerHTML='<div class="tid">'+t.id+'</div><div class="tn">'+t.name+'</div><div class="td">'+t.desc+'</div>';
+  b.onclick=()=>doAttack(t,b); atkBtns.appendChild(b);});
+
+// ---------- defense ----------
+const blueToggle=document.getElementById('blueToggle');
+blueToggle.onclick=()=>{S.blue=!S.blue;blueToggle.classList.toggle('on',S.blue);
+  document.querySelectorAll('.dbtn').forEach(d=>d.classList.toggle('disabled',!S.blue));
+  document.getElementById('idsState').textContent=S.blue?'active':'passive';
+  document.getElementById('idsState').style.color=S.blue?'var(--cyan)':'var(--dim)';
+  log('def', S.blue?'▣ BLUE TEAM engaged — IDS active, response unlocked':'Blue team stood down');};
+document.querySelectorAll('.dbtn').forEach(d=>{d.onclick=()=>{ if(!S.blue||S.over)return; const a=d.dataset.act;
+  if(a==='safety'){S.safety=true;S.attacks.safety=false;log('def','✓ Safety system restored');}
+  if(a==='setpoint'){S.clSet=1.0;S.attacks.chem=false;log('def','✓ Setpoints restored to safe band');}
+  if(a==='isolate'){S.attacks.flood=false;S.attacks.surge=false;S.pumpIn=0.5;S.valve=1.0;log('def','✓ Zone isolated — malicious commands blocked');}
+  if(a==='hmi'){S.hmiFrozen=false;S.hmiSpoofed=false;S.frozenSnap=null;log('def','✓ Operator view restored');}
+  S.defended=true; beep(880,0.1,'sine',0.05);
+}});
+
+// ---------- physics ----------
+function update(dt){
+  if(!S.running||S.over)return;
+  S.t+=dt;
+  flowPhase-=dt*(1.2+S.pumpIn*2.2); pumpPhase+=dt*(2+S.pumpIn*7);
+  // chlorine moves toward setpoint
+  S.chlorine += (S.clSet - S.chlorine)*Math.min(1,dt*0.6);
+  // flows
+  const inflow=S.pumpIn*0.06, outflow=S.pumpOut*S.valve*0.06;
+  S.level += (inflow-outflow)*dt;
+  // pressure: rises if valve throttled while pumping
+  const targetP = 3.2 + (1-S.valve)*S.pumpIn*7.5;
+  S.pressure += (targetP-S.pressure)*Math.min(1,dt*0.8);
+
+  // safety intervention
+  const danger = S.level>0.97 || S.chlorine>9 || S.pressure>8.5;
+  if(danger && S.safety){
+    // SIS trips: safe shutdown
+    S.pumpIn=0; S.valve=1; S.attacks.flood=false; S.attacks.surge=false;
+    if(!S._tripped){S._tripped=true;log('sys','◆ SAFETY TRIP — plant to safe shutdown. Cascade prevented.');
+      endGame(false,'Safety system tripped','SAFE SHUTDOWN');}
+  }
+
+  // damage accrues from sustained danger when unsafe
+  let dmg=0;
+  if(S.level>1){dmg+=(S.level-1)*42; overflowFX();}
+  if(S.chlorine>10){dmg+=(S.chlorine-10)*2.2; gasFX();}
+  if(S.pressure>8.5){dmg+=(S.pressure-8.5)*3.6; if(Math.random()<0.3)sparkFX();}
+  if(!S.safety && (S.level>0.9||S.chlorine>6||S.pressure>7)) dmg+=3.5;
+  S.health -= dmg*dt;
+  if(S.health<40)S.cityPower=0.4+0.6*Math.random()*(S.health/40); // flicker
+  if(S.health<=0){ S.health=0; triggerCatastrophe(); }
+
+  // klaxon intensity
+  const risk = Math.max(S.level>0.9?(S.level-0.9)/0.1:0, S.chlorine>6?(S.chlorine-6)/8:0, S.pressure>6?(S.pressure-6)/4:0, !S.safety?0.4:0);
+  klaxon = Math.min(1,risk);
+  if(shakeT>0)shakeT-=dt;
+  updateParticles(dt);
+  updateHUD();
+}
+
+function overflowFX(){ for(let i=0;i<3;i++)P.spray.push({x:T2.x+(Math.random()-.5)*T2.w,y:T2.y-T2.h,vx:(Math.random()-.5)*80,vy:-120-Math.random()*80,life:1}); }
+function gasFX(){ for(let i=0;i<2;i++)P.gas.push({x:T1.x+(Math.random()-.5)*30,y:T1.y-T1.h*0.5,r:6,life:1,vy:-18-Math.random()*20}); }
+function sparkFX(){ for(let i=0;i<6;i++)P.spark.push({x:PUMP2.x,y:PUMP2.y,vx:(Math.random()-.5)*220,vy:(Math.random()-.5)*220,life:1}); shakeT=0.3; }
+function updateParticles(dt){
+  for(const a of P.spray){a.x+=a.vx*dt;a.y+=a.vy*dt;a.vy+=520*dt;a.life-=dt*0.9;}
+  for(const a of P.gas){a.y+=a.vy*dt;a.r+=14*dt;a.life-=dt*0.5;}
+  for(const a of P.spark){a.x+=a.vx*dt;a.y+=a.vy*dt;a.vy+=400*dt;a.life-=dt*1.6;}
+  P.spray=P.spray.filter(a=>a.life>0); P.gas=P.gas.filter(a=>a.life>0); P.spark=P.spark.filter(a=>a.life>0);
+}
+
+function triggerCatastrophe(){
+  if(S.over)return;
+  let cons='SERVICE OUTAGE';
+  if(S.chlorine>10)cons='CHEMICAL RELEASE';
+  else if(S.pressure>8.5)cons='PIPE RUPTURE — PRESSURE SURGE';
+  else if(S.level>1)cons='CLEARWELL OVERFLOW — FLOODING';
+  S.cityPower=0; shakeT=0.6; alarm(); setTimeout(alarm,300); setTimeout(alarm,600);
+  document.getElementById('stage').classList.add('shake');
+  log('crit','✖ CATASTROPHE — '+cons);
+  endGame(true,'Attacker reached physical impact',cons);
+}
+
+function endGame(attackerWon,reason,cons){
+  if(S.over)return; S.over=true; S.running=false; S.cons=cons;
+  setTimeout(()=>{
+    const o=document.getElementById('outro'); o.classList.remove('hidden');
+    document.getElementById('outTitle').textContent=attackerWon?'PROCESS COMPROMISED':'THREAT CONTAINED';
+    document.getElementById('outTitle').style.color=attackerWon?'var(--red)':'var(--ok)';
+    document.getElementById('outSub').textContent=reason;
+    document.getElementById('outTime').textContent=fmt(S.t);
+    document.getElementById('outTech').textContent=S.usedCount+' / '+TECH.length;
+    document.getElementById('outCons').textContent=cons;
+    document.getElementById('outCons').style.color=attackerWon?'var(--red)':'var(--ok)';
+    document.getElementById('outDef').textContent=S.blue?(S.defended?'Blue team responded':'Blue team idle'):'No defenders';
+    document.getElementById('outDef').style.color=S.blue?'var(--cyan)':'var(--dim)';
+  },attackerWon?900:400);
+}
+
+// ---------- layout (computed each frame from size) ----------
+let T1={},T2={},PUMP1={},PUMP2={},CITY={},SIS={};
+function layout(){
+  const L=290, R=W-320, midY=H*0.62, cw=R-L;
+  T1={x:L+cw*0.30,y:midY,w:74,h:130};   // mixing tank
+  T2={x:L+cw*0.62,y:midY,w:112,h:170};  // clearwell (big)
+  PUMP1={x:L+cw*0.10,y:midY-30};
+  PUMP2={x:L+cw*0.80,y:midY-30};
+  CITY={x:R-40,y:midY+6};
+  SIS={x:L+cw*0.46,y:midY-150};
+}
+
+// ---------- draw ----------
+function draw(){
+  ctx.clearRect(0,0,W,H); layout();
+  // background gradient + grid
+  const g=ctx.createRadialGradient(W*0.5,H*0.2,60,W*0.5,H*0.5,H*1.1);
+  g.addColorStop(0,'#0b1626');g.addColorStop(1,'#05080d');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(55,225,214,.04)';ctx.lineWidth=1;
+  for(let x=0;x<W;x+=36){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=36){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  const toxic=S.chlorine>7;
+  drawCity();
+  drawGround();
+  // pipes
+  drawPipe(PUMP1.x,PUMP1.y+10,T1.x,T1.y-6,toxic);
+  drawPipe(T1.x,T1.y-6,T2.x,T2.y-6,toxic);
+  drawPipe(T2.x,T2.y-6,PUMP2.x,PUMP2.y+10,toxic);
+  drawPipe(PUMP2.x,PUMP2.y+10,CITY.x-70,CITY.y+30,toxic);
+  drawIntake(PUMP1.x-70,PUMP1.y);
+  drawPump(PUMP1,S.pumpIn);
+  drawTank(T1,Math.min(1,S.level*0.7+0.2),toxic,'MIX / DOSE');
+  drawDoser(T1);
+  drawTank(T2,S.level,toxic,'CLEARWELL');
+  drawPump(PUMP2,S.pumpOut*S.valve);
+  drawSIS();
+  drawParticles();
+  drawKlaxon();
+}
+
+function drawGround(){ctx.strokeStyle='rgba(55,225,214,.08)';ctx.beginPath();ctx.moveTo(240,H*0.62+40);ctx.lineTo(W-260,H*0.62+40);ctx.stroke();}
+
+function drawPipe(x1,y1,x2,y2,toxic){
+  ctx.lineWidth=9;ctx.strokeStyle='#101c28';ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  // flowing fluid
+  const active=S.pumpIn>0.02;
+  ctx.lineWidth=5;ctx.strokeStyle=toxic?'#8fd94a':'#2f8fd6';
+  ctx.setLineDash([10,9]);ctx.lineDashOffset=active?flowPhase*22:0;
+  ctx.globalAlpha=active?0.95:0.4;
+  ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+  ctx.setLineDash([]);ctx.globalAlpha=1;
+}
+
+function drawIntake(x,y){ ctx.fillStyle='#0e2233';ctx.strokeStyle='rgba(55,225,214,.3)';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.rect(x-30,y-14,44,44);ctx.fill();ctx.stroke();
+  ctx.fillStyle='rgba(47,143,214,.5)';ctx.fillRect(x-28,y+6,40,22);
+  ctx.fillStyle='var(--dim)';ctx.font='7px JetBrains Mono';ctx.fillStyle='#6b7f96';ctx.textAlign='center';ctx.fillText('RAW WATER',x-8,y+40);
+}
+
+function drawPump(p,speed){
+  ctx.save();ctx.translate(p.x,p.y);
+  const hot=speed>0.85;
+  ctx.fillStyle=hot?'#3a1614':'#0f1c28';ctx.strokeStyle=hot?'rgba(255,87,64,.7)':'rgba(55,225,214,.4)';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.arc(0,0,17,0,7);ctx.fill();ctx.stroke();
+  ctx.save();ctx.rotate(pumpPhase*(0.6+speed));
+  ctx.strokeStyle=hot?'#ff8a72':'#37e1d6';ctx.lineWidth=2.4;
+  for(let i=0;i<3;i++){ctx.rotate(Math.PI*2/3);ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(11,0);ctx.stroke();}
+  ctx.restore();
+  if(hot){ctx.globalAlpha=0.3+0.3*Math.sin(pumpPhase*4);ctx.fillStyle='#ff5740';ctx.beginPath();ctx.arc(0,0,22,0,7);ctx.fill();ctx.globalAlpha=1;}
+  ctx.restore();
+  ctx.fillStyle='#6b7f96';ctx.font='7px JetBrains Mono';ctx.textAlign='center';ctx.fillText('PLC',p.x,p.y+30);
+}
+
+function drawTank(t,level,toxic,label){
+  const x=t.x-t.w/2, top=t.y-t.h, lv=Math.max(0,Math.min(1.05,level));
+  // shell
+  ctx.fillStyle='rgba(9,16,24,.7)';ctx.strokeStyle='rgba(55,225,214,.35)';ctx.lineWidth=1.6;
+  roundRect(x,top,t.w,t.h,6);ctx.fill();ctx.stroke();
+  // water
+  const wh=Math.min(t.h,lv*t.h), wy=t.y-wh;
+  const grd=ctx.createLinearGradient(0,wy,0,t.y);
+  if(toxic){grd.addColorStop(0,'#a6e85a');grd.addColorStop(1,'#4e8f2a');}
+  else{grd.addColorStop(0,'#3aa0e0');grd.addColorStop(1,'#1c5f96');}
+  ctx.save();roundRect(x+2,top+2,t.w-4,t.h-4,5);ctx.clip();
+  ctx.fillStyle=grd;ctx.fillRect(x+2,wy,t.w-4,wh);
+  // wave surface
+  ctx.fillStyle=toxic?'#c5f57a':'#5ab6ef';ctx.beginPath();
+  ctx.moveTo(x+2,wy);
+  for(let i=0;i<=t.w;i+=6){const yy=wy+Math.sin((i*0.12)+flowPhase*3)*2.2;ctx.lineTo(x+2+i,yy);}
+  ctx.lineTo(x+t.w-2,wy+6);ctx.lineTo(x+2,wy+6);ctx.fill();
+  ctx.restore();
+  // level marks
+  ctx.strokeStyle='rgba(255,255,255,.08)';ctx.lineWidth=1;
+  for(let f=0.25;f<1;f+=0.25){const yy=t.y-f*t.h;ctx.beginPath();ctx.moveTo(x,yy);ctx.lineTo(x+t.w,yy);ctx.stroke();}
+  if(lv>0.97){ctx.strokeStyle='var(--red)';ctx.strokeStyle='#ff5740';ctx.lineWidth=2;roundRect(x,top,t.w,t.h,6);ctx.stroke();}
+  ctx.fillStyle='#93a7bd';ctx.font='700 8px Chakra Petch';ctx.textAlign='center';ctx.fillText(label,t.x,top-7);
+}
+
+function drawDoser(t){ // chlorine tank feeding T1
+  const x=t.x+t.w/2+14, y=t.y-t.h-6;
+  ctx.fillStyle=S.chlorine>7?'#3a2a10':'#20160a';ctx.strokeStyle=S.chlorine>7?'rgba(255,180,84,.8)':'rgba(255,180,84,.4)';ctx.lineWidth=1.4;
+  roundRect(x,y,20,34,3);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#ffb454';ctx.font='6px JetBrains Mono';ctx.textAlign='center';ctx.fillText('CL₂',x+10,y-4);
+  // drip
+  if(S.pumpIn>0.02){const dy=(S.t*60)%30;ctx.fillStyle=S.chlorine>7?'#ffd27a':'#8fd94a';ctx.beginPath();ctx.arc(x+10,y+34+dy*0.5,2,0,7);ctx.fill();}
+}
+
+function drawSIS(){
+  const x=SIS.x,y=SIS.y;
+  ctx.fillStyle=S.safety?'rgba(20,40,30,.8)':'rgba(46,14,14,.85)';
+  ctx.strokeStyle=S.safety?'rgba(57,217,138,.8)':'rgba(255,87,64,.9)';ctx.lineWidth=1.6;
+  roundRect(x-42,y-16,84,32,4);ctx.fill();ctx.stroke();
+  ctx.fillStyle=S.safety?'#39d98a':'#ff5740';ctx.font='700 9px Chakra Petch';ctx.textAlign='center';
+  ctx.fillText(S.safety?'SIS · ARMED':'SIS · OFFLINE',x,y-2);
+  ctx.font='6px JetBrains Mono';ctx.fillStyle='#6b7f96';ctx.fillText('SAFETY SYSTEM',x,y+11);
+  if(!S.safety&&Math.sin(S.t*8)>0){ctx.globalAlpha=0.25;ctx.fillStyle='#ff5740';roundRect(x-42,y-16,84,32,4);ctx.fill();ctx.globalAlpha=1;}
+  // link line to tanks
+  ctx.strokeStyle=S.safety?'rgba(57,217,138,.25)':'rgba(255,87,64,.25)';ctx.setLineDash([3,4]);
+  ctx.beginPath();ctx.moveTo(x,y+16);ctx.lineTo(T2.x,T2.y-T2.h);ctx.stroke();ctx.setLineDash([]);
+}
+
+function drawCity(){
+  const x=CITY.x,y=CITY.y,base=y+40;
+  ctx.fillStyle='#070c14';
+  const bl=[[0,60,34],[38,42,26],[66,74,40],[112,52,30],[150,84,46],[200,58,32],[240,70,38]];
+  for(const [bx,bh,bw] of bl){ const bxx=x-40+bx;
+    ctx.fillStyle='#0a121d';ctx.fillRect(bxx,base-bh,bw,bh);
+    // windows
+    for(let wy=base-bh+6;wy<base-6;wy+=10)for(let wx=bxx+5;wx<bxx+bw-4;wx+=9){
+      const lit=S.cityPower>Math.random()*0.9;
+      ctx.fillStyle=lit?(S.cityPower>0.5?'rgba(255,214,120,.9)':'rgba(255,120,80,.8)'):'rgba(30,42,58,.5)';
+      ctx.fillRect(wx,wy,4,5);
+    }
+  }
+  ctx.fillStyle=S.cityPower>0.3?'#6b7f96':'#ff5740';ctx.font='700 8px Chakra Petch';ctx.textAlign='center';
+  ctx.fillText(S.cityPower>0.3?'CITY · SUPPLIED':'CITY · NO WATER',x+90,base+16);
+}
+
+function drawParticles(){
+  for(const a of P.spray){ctx.globalAlpha=Math.max(0,a.life);ctx.fillStyle='#5ab6ef';ctx.fillRect(a.x,a.y,2.5,2.5);}
+  for(const a of P.gas){ctx.globalAlpha=Math.max(0,a.life*0.35);ctx.fillStyle='#b6e85a';ctx.beginPath();ctx.arc(a.x,a.y,a.r,0,7);ctx.fill();}
+  for(const a of P.spark){ctx.globalAlpha=Math.max(0,a.life);ctx.fillStyle=Math.random()<0.5?'#ffb454':'#ff5740';ctx.fillRect(a.x,a.y,2.5,2.5);}
+  ctx.globalAlpha=1;
+}
+function drawKlaxon(){ if(klaxon<=0.02)return;
+  const a=klaxon*(0.25+0.25*Math.sin(S.t*10));
+  ctx.fillStyle='rgba(255,87,64,'+a*0.4+')';ctx.fillRect(0,0,W,H);
+}
+
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+// ---------- HUD update ----------
+function updateHUD(){
+  const disp = (S.hmiFrozen&&S.frozenSnap)?S.frozenSnap : (S.hmiSpoofed?{level:0.5,chlorine:1.0,pressure:3.2}:S);
+  const lvl=Math.round(Math.min(1,Math.max(0,disp.level))*100);
+  const cl=disp.chlorine.toFixed(1), pr=disp.pressure.toFixed(1);
+  setG('gLevel',lvl, lvl>90?'crit':lvl>75?'warn':'');
+  setG('gCl',cl, disp.chlorine>7?'crit':disp.chlorine>4?'warn':'');
+  setG('gPress',pr, disp.pressure>7?'crit':disp.pressure>5?'warn':'');
+  const bl=document.getElementById('barLevel'); bl.style.width=lvl+'%';
+  bl.style.background = lvl>90?'linear-gradient(90deg,#7a1f16,#ff5740)':lvl>75?'linear-gradient(90deg,#7a561f,#ffb454)':'linear-gradient(90deg,#1f6a66,#37e1d6)';
+  document.getElementById('barLevelTxt').textContent=lvl+'%';
+  const hmi=document.getElementById('hmi'), flag=document.getElementById('hmiFlag'), st=document.getElementById('hmiState');
+  hmi.classList.toggle('spoofed',S.hmiSpoofed); hmi.classList.toggle('frozen',S.hmiFrozen);
+  if(S.hmiFrozen){flag.textContent='◼ FROZEN — no live data';flag.style.color='#ff5740';st.textContent='DoV';st.style.color='#ff5740';}
+  else if(S.hmiSpoofed){flag.textContent='● LIVE — process nominal';flag.style.color='#39d98a';st.textContent='SPOOFED';st.style.color='#ffb454';}
+  else{flag.textContent='● LIVE — telemetry ok';flag.style.color='#39d98a';st.textContent='';}
+  // status badge
+  const b=document.getElementById('statusBadge');
+  if(S.over){}
+  else if(S.health<45||klaxon>0.5){b.textContent='CRITICAL';b.className='badge crit';}
+  else if(S.health<80||klaxon>0.1||!S.safety){b.textContent='DEGRADED';b.className='badge warn';}
+  else{b.textContent='NOMINAL';b.className='badge';}
+  document.getElementById('clock').textContent=fmt(S.t);
+}
+function setG(id,v,cls){const e=document.getElementById(id);e.textContent=v;e.className='val'+(cls?' '+cls:'');}
+
+// ---------- loop ----------
+let last=0;
+function loop(ts){ const dt=Math.min(0.05,(ts-last)/1000||0); last=ts;
+  update(dt); draw(); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+
+// ---------- intro / start ----------
+const termLines=["> establishing route to 10.20.1.0/24 ...","> enumerating controllers ... 6 PLC · 1 SIS · 1 HMI","> Modbus/TCP :502 reachable — no authentication","> foothold acquired. handing over to operator."];
+let ti=0,ci=0;
+function typeTerm(){ if(ti>=termLines.length)return; const el=document.getElementById('term');
+  el.textContent=termLines[ti].slice(0,ci); ci++;
+  if(ci>termLines[ti].length){ti++;ci=0;setTimeout(typeTerm,420);} else setTimeout(typeTerm,18); }
+setTimeout(typeTerm,500);
+
+document.getElementById('startBtn').onclick=()=>{
+  document.getElementById('intro').classList.add('hidden');
+  S.running=true; log('sys','◆ Simulation started — plant nominal. Attacker has a foothold.');
+  buildTicker();
+  try{if(!AC)AC=new(window.AudioContext||window.webkitAudioContext)();}catch(e){}
+};
+document.getElementById('restartBtn').onclick=()=>location.reload();
+document.getElementById('muteBtn').onclick=(e)=>{muted=!muted;e.target.textContent=muted?'🔇 SFX':'🔊 SFX';};
+
+function buildTicker(){ const items=["<b>▲ LIVE ICS ATTACK SIMULATION</b>","target: Riverside Water Treatment","<span class='c'>T0855</span> Unauthorized Command","<span class='c'>T0836</span> Modify Setpoint","<span class='c'>T0880</span> Loss of Safety — TRITON","every technique here is real ATT&CK for ICS","flip to BLUE TEAM to defend"];
+  document.getElementById('tk').innerHTML=items.join(' &nbsp;///&nbsp; ')+' &nbsp;///&nbsp; '; }
+</script>
+</body>
+</html>
